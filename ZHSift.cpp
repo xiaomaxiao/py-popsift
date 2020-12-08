@@ -14,31 +14,117 @@
 #include <popsift/version.hpp>
 #include <cuda_runtime.h>
 
+#include <opencv2/core/core.hpp>
+
 namespace py = pybind11;
 
 
-class KeyPoint
-{
-public:
-    KeyPoint(std::tuple<float,float> _pt, float _size, float _angle=-1, float _response=0, \
-                int _octave=0, int _class_id=-1)
-    {
-        pt = _pt;
-        size = _size;
-        angle = _angle;
-        response = _response;
-        octave = _octave;
-        class_id = _class_id;
-    }
+// namespace pybind11 { namespace detail {
+//     template <>
+//     struct type_caster<cv::KeyPoint>{
+
+//         PYBIND11_TYPE_CASTER(cv::KeyPoint,_("cv2.KeyPoint"));
+
+//         //python to c++
+//         bool load(handle obj, bool){
+
+//         }
+//     };
+
+// }}
+
+// class KeyPoint
+// {
+// public:
+//     KeyPoint(std::tuple<float,float> _pt, float _size, float _angle=-1, float _response=0, \
+//                 int _octave=0, int _class_id=-1)
+//     {
+//         pt = _pt;
+//         size = _size;
+//         angle = _angle;
+//         response = _response;
+//         octave = _octave;
+//         class_id = _class_id;
+//     }
     
-public:
-    float angle;
-    int class_id;
-    int octave;
-    std::tuple<float,float> pt;
-    float response;
-    float size;
+// public:
+//     float angle;
+//     int class_id;
+//     int octave;
+//     std::tuple<float,float> pt;
+//     float response;
+//     float size;
+// };
+
+namespace pybind11 { namespace detail{
+//! 实现 cv::Point 和 tuple(x,y) 之间的转换。
+template<>
+struct type_caster<cv::Point2f>{
+
+    //! 定义 cv::Point 类型名为 tuple_xy, 并声明类型为 cv::Point 的局部变量 value。
+    PYBIND11_TYPE_CASTER(cv::Point2f, _("tuple_xy"));
+
+    //! 步骤1：从 Python 转换到 C++。    
+    //! 将 Python tuple 对象转换为 C++ cv::Point 类型, 转换失败则返回 false。    
+    //! 其中参数2表示是否隐式类型转换。   
+    bool load(handle obj, bool){        
+        // 确保传参是 tuple 类型        
+        if(!py::isinstance<py::tuple>(obj)){            
+            std::logic_error("Point(x,y) should be a tuple!");            
+            return false;       
+        }       
+ 
+        // 从 handle 提取 tuple 对象，确保其长度是2。        
+        py::tuple pt = reinterpret_borrow<py::tuple>(obj);        
+        if(pt.size()!=2){            
+            std::logic_error("Point(x,y) tuple should be size of 2");            
+            return false;        
+        }       
+
+        //! 将长度为2的 tuple 转换为 cv::Point。        
+        value = cv::Point2f(pt[0].cast<float>(), pt[1].cast<float>());       
+        return true;    
+    }
+
+    //! 步骤2： 从 C++ 转换到 Python。    
+    //! 将 C++ cv::Mat 对象转换到 tuple，参数2和参数3常忽略。    
+    static handle cast(const cv::Point2f& pt, return_value_policy, handle){       
+        return py::make_tuple(pt.x, pt.y).release();   
+    }
 };
+}} //!  end namespace pybind11::detail
+
+
+namespace pybind11 { namespace detail {
+template <> struct type_caster<cv::KeyPoint>{
+    PYBIND11_TYPE_CASTER(cv::KeyPoint,_("KeyPoint"));
+    bool load(handle obj,bool){
+        if(!obj) return false;
+        value.pt = obj.attr("pt").cast<cv::Point2f>();
+        value.size = obj.attr("size").cast<float>();
+        value.angle = obj.attr("angle").cast<float>();
+        value.response = obj.attr("response").cast<float>();
+        value.octave = obj.attr("octave").cast<int>();
+        value.class_id = obj.attr("size").cast<int>();
+        return true;
+    }
+
+    static handle cast(cv::KeyPoint v, return_value_policy , handle){
+        py::object obj = py::module::import("cv2").attr("KeyPoint")();
+        obj.attr("pt") = py::cast(v.pt);
+        obj.attr("size") = py::cast(v.size);
+        obj.attr("angle") = py::cast(v.angle);
+        obj.attr("response") = py::cast(v.response);
+        obj.attr("octave") = py::cast(v.octave);
+        obj.attr("size") = py::cast(v.size);
+        return obj.release();
+    }
+
+
+};
+}}
+
+
 
 
 class ZHSift 
@@ -67,7 +153,7 @@ public:
     /*the method is the same as opencv sift 
      *     std::tuple<std::vector<KeyPoint> , std::vector<Desc> > 
     */
-    std::tuple<std::vector<KeyPoint>,py::array_t<float>> detectAndCompute(py::array_t<uint8_t,py::array::c_style> grayImg) {
+    std::tuple<std::vector<cv::KeyPoint>,py::array_t<float>> detectAndCompute(py::array_t<uint8_t,py::array::c_style> grayImg) {
         
         //get image info from numpy 
         py::buffer_info buffer_grayImg = grayImg.request();
@@ -86,7 +172,7 @@ public:
         size_t num_features = feature_list->getFeatureCount();
         size_t num_descriptors = feature_list->getDescriptorCount();
         
-        std::vector<KeyPoint> keypoints;
+        std::vector<cv::KeyPoint> keypoints;
         // std::vector<Desc> descriptors;
         py::array_t<float> descriptors = py::array_t<float>(num_descriptors * 128);
         py::buffer_info buffer_descriptors = descriptors.request();
@@ -95,8 +181,8 @@ public:
         for (size_t i = 0; i < num_features; i++){
             popsift::Feature feature = features[i];
             for (size_t ori = 0; ori <feature.num_ori;ori++){
-                KeyPoint kp(
-                            std::make_tuple(feature.xpos,feature.ypos),
+                cv::KeyPoint kp(
+                            feature.xpos,feature.ypos,
                             feature.sigma,
                             feature.orientation[ori],
                             0.0,
@@ -129,12 +215,12 @@ PYBIND11_MODULE(ZHSift,m){
     py::class_<ZHSift>(m,"ZHSift")
         .def(py::init<int,bool>())
         .def("detectAndCompute",&ZHSift::detectAndCompute);
-    py::class_<KeyPoint>(m,"KeyPoint")
-        .def(py::init<std::tuple<float,float>,float,float,float,int,int>())
-        .def_readonly("angle",&KeyPoint::angle)
-        .def_readonly("class_id",&KeyPoint::class_id)
-        .def_readonly("octave",&KeyPoint::octave)
-        .def_readonly("pt",&KeyPoint::pt)
-        .def_readonly("response",&KeyPoint::response)
-        .def_readonly("size",&KeyPoint::size);
+    // py::class_<cv::KeyPoint>(m,"cv.KeyPoint")
+    //     .def(py::init<float,float,float,float,float,int,int>())
+    //     .def_readonly("angle",&cv::KeyPoint::angle)
+    //     .def_readonly("class_id",&cv::KeyPoint::class_id)
+    //     .def_readonly("octave",&cv::KeyPoint::octave)
+    //     .def_readonly("pt",&cv::KeyPoint::pt)
+    //     .def_readonly("response",&cv::KeyPoint::response)
+    //     .def_readonly("size",&cv::KeyPoint::size);
 }
