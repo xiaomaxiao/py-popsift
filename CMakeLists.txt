@@ -19,6 +19,14 @@ else()
     message(WARNING "cuda not found")
 endif()
 
+find_package(OpenCV REQUIRED)
+if(OpenCV_FOUND)
+    message(STATUS "opencv found")
+else()
+    message(WARNING "opencv not found")
+endif()
+
+
 set(pybind11_dir "../pybind11")
 set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR})
 
@@ -26,7 +34,7 @@ add_subdirectory(${pybind11_dir} pybind11.out)
 
 find_package(PythonInterp REQUIRED)
 
-include_directories( ${PopSift_INCLUDE_DIRS} ${CUDA_INCLUDE_DIRS})
+include_directories( ${PopSift_INCLUDE_DIRS} ${CUDA_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 
 
 add_library(ZHSift
@@ -34,7 +42,7 @@ add_library(ZHSift
     ZHSift.cpp
   )
 
-target_link_libraries(ZHSift  PopSift::popsift pybind11::module ${CUDA_LIBS})
+target_link_libraries(ZHSift  PopSift::popsift pybind11::module ${CUDA_LIBS} ${OpenCV_LIBS})
 set_target_properties(ZHSift
   PROPERTIES
     PREFIX "${PYTHON_MODULE_PREFIX}"
